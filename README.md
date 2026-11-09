@@ -15,3 +15,4 @@ This project automates the deployment of a local web server environment using an
 ```powershell
    terraform init
    terraform apply
+    terraform ok
