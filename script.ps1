@@ -1,49 +1,49 @@
-param(
-    [string]$ServerName = "W3SVC",
-    [string]$LogPath = "C:\webserver\logs\install.log"
+# Parameters for paths
+param (
+    [string]$LogPath = "C:\webserver\logs\install.log",
+    [string]$WebPath = "C:\webserver\index.html"
 )
 
-# Function 1: Write messages with timestamps to a log file
+# 1. FUNCTION: Handles timestamped logging
 function Write-CustomLog {
     param ([string]$Message)
     $Timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    $LogEntry = "[$Timestamp] $Message"
-    Add-Content -Path $LogPath -Value $LogEntry
-    Write-Host $LogEntry -ForegroundColor Cyan
+    "[$Timestamp] $Message" | Out-File -FilePath $LogPath -Append
 }
 
-# Function 2: Create a simple HTML index file in our webserver folder
+# 2. FUNCTION: Generates the HTML web page
 function New-WebPage {
-    param ([string]$Path)
-    try {
-        $HtmlContent = "<html><body><h1>Hello from Automated Infra Project!</h1></body></html>"
-        Set-Content -Path "$Path\index.html" -Value $HtmlContent -ErrorAction Stop
-        Write-CustomLog "Successfully created index.html web page."
-    }
-    catch {
-        Write-CustomLog "ERROR: Could not create web page. Details: $_"
-    }
+    $HtmlContent = "<html><body><h1>Webserver Active</h1></body></html>"
+    Set-Content -Path $WebPath -Value $HtmlContent
+    Write-CustomLog "Created index.html web page at $WebPath"
 }
 
-# Function 3: Check the status of a Windows service using Try/Catch error handling
+# 3. FUNCTION: Checks service health using LOOP, CONDITION, and TRY/CATCH
 function Test-ServiceStatus {
-    param ([string]$ServiceName)
-    try {
-        $Service = Get-Service -Name $ServiceName -ErrorAction Stop
-        Write-CustomLog "Service '$ServiceName' status is: $($Service.Status)"
-    }
-    catch {
-        Write-CustomLog "ERROR: Failed to find service '$ServiceName'. Details: $_"
+    # Array of Windows services to inspect
+    $Services = @("W3SVC", "Spooler")
+
+    # LOOP: Iterate through each service in the array
+    foreach ($Service in $Services) {
+        try {
+            $Status = Get-Service -Name $Service -ErrorAction Stop
+            
+            # CONDITION: Check if the service is actively running
+            if ($Status.Status -eq 'Running') {
+                Write-CustomLog "Service $Service is active and running cleanly."
+            } else {
+                Write-CustomLog "Service $Service exists but state is: $($Status.Status)."
+            }
+        }
+        catch {
+            # ERROR HANDLING: Catches non-existent services cleanly
+            Write-CustomLog "Error inspecting service $Service : $_"
+        }
     }
 }
 
 # --- Execution Flow ---
-Write-CustomLog "Starting PowerShell infrastructure script..."
-
-# Run Function 2
-New-WebPage -Path "C:\webserver"
-
-# Run Function 3
-Test-ServiceStatus -ServiceName $ServerName
-
-Write-CustomLog "Script execution completed successfully."
+Write-CustomLog "Starting Automated Web Server Deployment..."
+New-WebPage
+Test-ServiceStatus
+Write-CustomLog "Deployment & Verification Completed Successfully."
