@@ -1,49 +1,62 @@
-# Parameters for paths
+# Parameters
 param (
     [string]$LogPath = "C:\webserver\logs\install.log",
     [string]$WebPath = "C:\webserver\index.html"
 )
 
-# 1. FUNCTION: Handles timestamped logging
+# 1. Function with parameter: Logging
 function Write-CustomLog {
-    param ([string]$Message)
+    param (
+        [string]$Message
+    )
     $Timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     "[$Timestamp] $Message" | Out-File -FilePath $LogPath -Append
 }
 
-# 2. FUNCTION: Generates the HTML web page
+# 2. Function with parameter: Webpage creation
 function New-WebPage {
-    $HtmlContent = "<html><body><h1>Webserver Active</h1></body></html>"
-    Set-Content -Path $WebPath -Value $HtmlContent
-    Write-CustomLog "Created index.html web page at $WebPath"
+    param (
+        [string]$FilePath
+    )
+    $HtmlContent = "<html><body><h1>Webserver Active</h1><p>Automated deployment completed successfully.</p></body></html>"
+    Set-Content -Path $FilePath -Value $HtmlContent
+    Write-CustomLog -Message "Created web page at $FilePath"
 }
 
-# 3. FUNCTION: Checks service health using LOOP, CONDITION, and TRY/CATCH
+# 3. Function with parameter: Service status verification (Loop + Condition + Try/Catch)
 function Test-ServiceStatus {
-    # Array of Windows services to inspect
-    $Services = @("W3SVC", "Spooler")
-
+    param (
+        [string[]]$ServiceList
+    )
+    
     # LOOP: Iterate through each service in the array
-    foreach ($Service in $Services) {
+    foreach ($Service in $ServiceList) {
         try {
+            # Attempt to retrieve service status
             $Status = Get-Service -Name $Service -ErrorAction Stop
             
-            # CONDITION: Check if the service is actively running
+            # CONDITION: Check if service is running or stopped
             if ($Status.Status -eq 'Running') {
-                Write-CustomLog "Service $Service is active and running cleanly."
+                Write-CustomLog -Message "Service check: $Service is currently RUNNING."
             } else {
-                Write-CustomLog "Service $Service exists but state is: $($Status.Status)."
+                Write-CustomLog -Message "Service check: $Service exists but is $($Status.Status)."
             }
         }
         catch {
-            # ERROR HANDLING: Catches non-existent services cleanly
-            Write-CustomLog "Error inspecting service $Service : $_"
+            # FELHANTERING: Catch non-existent services or access permissions errors
+            Write-CustomLog -Message "Service check ERROR: Could not query service '$Service'. Details: $_"
         }
     }
 }
 
 # --- Execution Flow ---
-Write-CustomLog "Starting Automated Web Server Deployment..."
-New-WebPage
-Test-ServiceStatus
-Write-CustomLog "Deployment & Verification Completed Successfully."
+Write-CustomLog -Message "Starting automation pipeline..."
+
+# Run function to create web page
+New-WebPage -FilePath $WebPath
+
+# Run function to test services
+$ServicesToTest = @("W3SVC", "Spooler", "FakeTestService")
+Test-ServiceStatus -ServiceList $ServicesToTest
+
+Write-CustomLog -Message "Automation script execution finished successfully."
