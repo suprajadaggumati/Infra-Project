@@ -1,62 +1,79 @@
-# Parameters
-param (
-    [string]$LogPath = "C:\webserver\logs\install.log",
-    [string]$WebPath = "C:\webserver\index.html"
+param(
+    [string]$DestinationPath = "C:\webserver"
 )
 
-# 1. Function with parameter: Logging
-function Write-CustomLog {
-    param (
-        [string]$Message
-    )
-    $Timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    "[$Timestamp] $Message" | Out-File -FilePath $LogPath -Append
-}
-
-# 2. Function with parameter: Webpage creation
-function New-WebPage {
-    param (
-        [string]$FilePath
-    )
-    $HtmlContent = "<html><body><h1>Webserver Active</h1><p>Automated deployment completed successfully.</p></body></html>"
-    Set-Content -Path $FilePath -Value $HtmlContent
-    Write-CustomLog -Message "Created web page at $FilePath"
-}
-
-# 3. Function with parameter: Service status verification (Loop + Condition + Try/Catch)
-function Test-ServiceStatus {
-    param (
-        [string[]]$ServiceList
-    )
+# PowerShell function
+function Initialize-DirectoryStructure {
+    param([string]$BasePath)
     
-    # LOOP: Iterate through each service in the array
-    foreach ($Service in $ServiceList) {
-        try {
-            # Attempt to retrieve service status
-            $Status = Get-Service -Name $Service -ErrorAction Stop
-            
-            # CONDITION: Check if service is running or stopped
-            if ($Status.Status -eq 'Running') {
-                Write-CustomLog -Message "Service check: $Service is currently RUNNING."
-            } else {
-                Write-CustomLog -Message "Service check: $Service exists but is $($Status.Status)."
-            }
-        }
-        catch {
-            # FELHANTERING: Catch non-existent services or access permissions errors
-            Write-CustomLog -Message "Service check ERROR: Could not query service '$Service'. Details: $_"
+    # An array of target directories required for the web server setup
+    $targetDirectories = @(
+        $BasePath,
+        "$BasePath\logs",
+        "$BasePath\dsc"
+    )
+
+    Write-Host "Starting pre-flight directory validation..." -ForegroundColor Yellow
+
+    #  A meaningful loop that iterates through and checks paths
+    foreach ($dir in $targetDirectories) {
+        if (-not (Test-Path $dir)) {
+            Write-Host "Target directory verified for creation: $dir" -ForegroundColor Cyan
+        } else {
+            Write-Host "Target directory already present: $dir" -ForegroundColor DarkCyan
         }
     }
 }
 
-# --- Execution Flow ---
-Write-CustomLog -Message "Starting automation pipeline..."
+# Execute the function
+Initialize-DirectoryStructure -BasePath $DestinationPath
 
-# Run function to create web page
-New-WebPage -FilePath $WebPath
+try {
+    # Define the DSC Configuration block
+    Configuration WebServerConfig {
+        Import-DscResource -ModuleName PsDesiredStateConfiguration
 
-# Run function to test services
-$ServicesToTest = @("W3SVC", "Spooler", "FakeTestService")
-Test-ServiceStatus -ServiceList $ServicesToTest
+        Node "localhost" {
+            # 1. Ensure the main webserver directory exists
+            File WebServerDirectory {
+                Ensure          = "Present"
+                Type            = "Directory"
+                DestinationPath = $DestinationPath
+            }
 
-Write-CustomLog -Message "Automation script execution finished successfully."
+            # 2. Ensure the logs directory exists
+            File LogsDirectory {
+                Ensure          = "Present"
+                Type            = "Directory"
+                DestinationPath = "$DestinationPath\logs"
+                DependsOn       = "[File]WebServerDirectory"
+            }
+
+            # 3. Ensure the index.html file exists with correct content
+            File WebPageFile {
+                Ensure          = "Present"
+                Type            = "File"
+                DestinationPath = "$DestinationPath\index.html"
+                Contents        = "<html><body><h1>Webserver Active via PowerShell DSC</h1></body></html>"
+                DependsOn       = "[File]WebServerDirectory"
+            }
+        }
+    }
+
+    # Compile the configuration to generate the MOF file
+    WebServerConfig -OutputPath "$DestinationPath\dsc"
+
+    # Apply the DSC configuration to the system
+    Start-DscConfiguration -Path "$DestinationPath\dsc" -Wait -Verbose -Force
+    
+    # Verification step
+    if (Test-Path "$DestinationPath\index.html") {
+        Write-Host "DSC Configuration applied and verified successfully." -ForegroundColor Green
+    } else {
+        throw "Verification failed: index.html was not found after apply."
+    }
+}
+catch {
+    Write-Error "An error occurred during DSC configuration: $_"
+    exit 1
+}
