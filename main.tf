@@ -1,25 +1,34 @@
 
 terraform {
   required_version = ">= 1.4.0"
-}
 
-variable "web_dir" {
-  type        = string
-  default     = "C:/webserver"
-  description = "Main web-root directory."
-}
-
-# Create the web-root directory on the machine running Terraform.
-resource "terraform_data" "webserver_directory" {
-  triggers_replace = [var.web_dir]
-
-  provisioner "local-exec" {
-    command     = "New-Item -ItemType Directory -Force -Path '${var.web_dir}' | Out-Null"
-    interpreter = ["PowerShell", "-NoProfile", "-NonInteractive", "-Command"]
+  required_providers {
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.0"
+    }
   }
 }
 
+provider "local" {}
+
+# Main webserver directory
+variable "web_dir" {
+  type        = string
+  default     = "C:/webserver"
+  description = "Main directory for the webserver."
+}
+
+# Create the webserver directory
+resource "terraform_data" "webserver_directory" {
+  provisioner "local-exec" {
+    command = "New-Item -ItemType Directory -Force -Path '${var.web_dir}'"
+    interpreter = ["PowerShell", "-Command"]
+  }
+}
+
+# Display the webserver directory path
 output "webserver_path" {
   value       = var.web_dir
-  description = "Location of the web-root directory."
+  description = "Location of the webserver directory."
 }
