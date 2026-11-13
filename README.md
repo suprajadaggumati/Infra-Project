@@ -2,113 +2,111 @@
 
 ## Project overview
 
-This project demonstrates local infrastructure and configuration automation on Windows. Terraform uses the HashiCorp `local` provider to create placeholder files in a web-root directory. A PowerShell script uses Desired State Configuration (DSC) to ensure that the web-root directory, its logs directory, and an HTML page are present.
+This project demonstrates local infrastructure and configuration automation on Windows. Terraform creates a configurable web-root directory on the machine where Terraform runs. A PowerShell script uses Desired State Configuration (DSC) to ensure that the web-root directory, its logs directory, and an HTML page are present.
 
 The project creates an HTML file; it does **not** install or start IIS or another web server, so the page is not served over HTTP.
 
 ## Technologies and prerequisites
 
 - Windows
-- Terraform CLI (version 1.0 or later)
+- Terraform CLI (version 1.4 or later; `terraform_data` is used)
 - Windows PowerShell 5.1
 - Administrator permissions to apply the local DSC configuration
 - Git
-
-Terraform downloads the `hashicorp/local` provider during initialization. The DSC configuration uses the `PSDesiredStateConfiguration` module available in Windows PowerShell.
 
 ## Project files
 
 ```text
 .
-|-- main.tf               # Terraform provider, variable, local files, and output
-|-- script.ps1            # PowerShell function, preflight checks, and DSC configuration
-|-- README.md             # Project documentation
-|-- .gitignore            # Excludes local Terraform working data
-`-- .terraform.lock.hcl   # Locks the Terraform provider version
+|-- main.tf       # Terraform directory creation, variable, and output
+|-- script.ps1    # PowerShell preflight checks and DSC configuration
+|-- README.md     # Project documentation
+|-- .gitignore    # Excludes local state and generated files
+`-- .terraform.lock.hcl
 ```
 
-Terraform also creates a `.terraform` working directory and a state file when initialized and applied. These are local working data and should not be committed. Keep `.terraform.lock.hcl` in Git so provider selections are reproducible.
+Terraform creates local working data in `.terraform` and state files. The PowerShell script compiles its DSC MOF files into `DSC_Output`. These generated files should not be submitted or committed; `.gitignore` excludes them. `.terraform.lock.hcl` is retained from the earlier local-provider configuration; the current `main.tf` uses Terraform's built-in `terraform_data` resource and does not require an external provider.
 
 ## How it works
 
-1. `main.tf` declares the `hashicorp/local` provider and requires Terraform 1.0 or later.
-2. The `web_dir` input variable sets the target directory; its default is `C:\webserver`.
-3. Two `local_file` resources create placeholder files in the web root and its `logs` subdirectory.
-4. The `webserver_path` output displays the configured web-root path.
-5. `script.ps1` accepts `DestinationPath` (default `C:\webserver`) and rejects an empty value.
-6. The `Initialize-DirectoryStructure` function loops through the web root, `logs`, and `dsc` paths and reports whether each already exists. It does not create these directories; DSC creates the desired directories.
-7. The script compiles and applies the `WebServerConfig` DSC configuration for `localhost`. DSC ensures the root directory, logs directory, and `index.html` file are present.
-8. The script checks whether `index.html` exists after the apply and reports an error if it does not.
+1. `main.tf` declares the `web_dir` variable, which defaults to `C:/webserver`.
+2. The built-in `terraform_data` resource runs a local PowerShell command to create the web-root directory. It is replaced and runs again if `web_dir` changes.
+3. The `webserver_path` output displays the configured directory.
+4. `script.ps1` accepts `BasePath` (default `C:\webserver`) and checks that it is not blank.
+5. `Initialize-DirectoryStructure` loops over the web root and its `logs` directory and reports whether each already exists.
+6. The DSC configuration ensures the web root, `logs` directory, and `index.html` exist, then applies the configuration to `localhost`.
+7. The script checks that `index.html` exists after DSC completes. Errors are reported and the script exits unsuccessfully.
+
+Terraform uses a local-exec provisioner to create a directory. Provisioners run commands on the machine executing Terraform; this is a small educational example rather than a cloud or remote infrastructure deployment.
 
 ## Run the project
 
-From the repository directory, initialize and validate Terraform, then apply it:
+Run these commands from the repository directory in PowerShell:
 
 ```powershell
 terraform init
 terraform validate
+terraform plan
 terraform apply
 ```
 
-Review the plan and enter `yes` when prompted. Then open **Windows PowerShell 5.1 as Administrator** and run the DSC script:
+Review the Terraform plan and confirm the apply when prompted. Then open **Windows PowerShell 5.1 as Administrator** and run the DSC script:
 
 ```powershell
 .\script.ps1
 ```
 
-Terraform and DSC both default to `C:\webserver`. To use another directory, provide the same path to both:
+Both tools default to `C:\webserver`. To use another directory, provide the same path to Terraform and the script:
 
 ```powershell
 $WebRoot = 'C:\webserver-test'
 terraform apply -var="web_dir=$WebRoot"
-.\script.ps1 -DestinationPath $WebRoot
+.\script.ps1 -BasePath $WebRoot
 ```
 
-Check the result:
+Verify the result:
 
 ```powershell
+Test-Path 'C:\webserver'
 Test-Path 'C:\webserver\logs'
 Get-Content 'C:\webserver\index.html'
 terraform output webserver_path
 ```
 
-`Test-Path` should return `True`, and `Get-Content` should display the generated HTML.
+The `Test-Path` commands should return `True`, and `Get-Content` should display the generated HTML.
 
-## Expected files
+## Expected result
 
 With the default path, the project creates:
 
 ```text
 C:\webserver\
-|-- .placeholder
 |-- index.html
-|-- dsc\
 `-- logs\
-    `-- .placeholder
 ```
 
-Terraform creates the placeholder files. The PowerShell script compiles a local DSC MOF under `dsc` and applies the configuration that creates or maintains the directories and `index.html`.
+The DSC configuration files are compiled under the repository's `DSC_Output` directory.
 
-## Assignment requirements and current status
+## Assignment requirements
 
-- **PowerShell script:** Present. It accepts a parameter, validates it, defines and calls a function, uses a loop and conditions, applies DSC, handles errors, and checks for the generated page.
-- **Terraform:** Present. `main.tf` defines the `web_dir` input variable and `webserver_path` output.
-- **README:** Describes the project's goal, method, result, structure, limitations, and reflection, and includes the GitHub link.
-- **VG extras:** No Python script or Ansible playbook is included. These are listed as extra files for VG in the supplied project specification, not the required G files.
+- **PowerShell:** The script includes a parameter, function, loop, conditions, DSC configuration, error handling, and a post-apply check.
+- **Terraform:** The configuration uses a `web_dir` input variable and a `webserver_path` output.
+- **README:** Documents the project purpose, tools, workflow, expected result, limitations, and AI assistance.
+- **VG extras:** No Python script or Ansible playbook is included. These are extras for VG in the supplied project specification, not listed as required files for G.
 
-## Limitations and verification
+## Limitations and testing
 
-This is a local filesystem automation demonstration, not a complete web server deployment. The script checks that `index.html` exists after applying DSC; it does not run `Test-DscConfiguration` or check an HTTP endpoint. Terraform's local provider manages files on the machine where Terraform runs.
+This is local web-root filesystem automation, not a running web-server deployment. It does not install a server, expose the page over HTTP, or verify an HTTP response. Terraform's local-exec command runs on the machine executing Terraform and requires PowerShell to be available there. DSC application should be tested in an elevated PowerShell session.
 
-Terraform validation, formatting, PowerShell syntax parsing, and DSC configuration compilation can be checked without applying changes. A full end-to-end test still requires running `terraform apply` and `script.ps1` on the intended Windows machine, then confirming the files and DSC result. Apply DSC only in an elevated PowerShell session.
+`terraform validate`, `terraform fmt -check`, and PowerShell syntax parsing are non-destructive checks. A full end-to-end test requires running Terraform and DSC on the Windows machine where the project will be demonstrated, then checking that the expected paths and files exist.
 
 ## Reflection
 
-The project separates filesystem provisioning from configuration management: Terraform creates the initial placeholder files and DSC declares the desired web-root content. This keeps the example small and makes the roles of the two tools visible. A future extension could add a web server and an HTTP health check.
+The project uses Terraform to provision the base directory and DSC to describe and apply the desired local filesystem state. This demonstrates how IaC and configuration management can complement each other. A future extension could install and configure a real web server and verify it through an HTTP health check.
 
 ## AI and external sources
 
-AI assistance was used to review the project requirements and help draft the DSC configuration and documentation. The project author is responsible for reviewing, testing, and understanding all submitted code. No other external code sources are documented here.
+AI assistance was used to review the project requirements and help with parts of the PowerShell script and README. The project author should review, test, and be able to explain all submitted code. No other external code sources are documented here.
 
 ## GitHub repository
 

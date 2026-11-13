@@ -1,79 +1,100 @@
-param(
-    [string]$DestinationPath = "C:\webserver"
+
+param (
+    [string]$BasePath = "C:\webserver"
 )
 
-# PowerShell function
+$ErrorActionPreference = "Stop"
+
+# Check that the base path is provided
+if ([string]::IsNullOrWhiteSpace($BasePath)) {
+    throw "Base path cannot be empty."
+}
+
+# Check the required directories
 function Initialize-DirectoryStructure {
-    param([string]$BasePath)
-    
-    # An array of target directories required for the web server setup
-    $targetDirectories = @(
-        $BasePath,
-        "$BasePath\logs",
-        "$BasePath\dsc"
+    param (
+        [string]$TargetPath
     )
 
-    Write-Host "Starting pre-flight directory validation..." -ForegroundColor Yellow
+    Write-Host "Checking webserver directories..." -ForegroundColor Cyan
 
-    #  A meaningful loop that iterates through and checks paths
-    foreach ($dir in $targetDirectories) {
-        if (-not (Test-Path $dir)) {
-            Write-Host "Target directory verified for creation: $dir" -ForegroundColor Cyan
-        } else {
-            Write-Host "Target directory already present: $dir" -ForegroundColor DarkCyan
+    $directories = @(
+        $TargetPath,
+        (Join-Path $TargetPath "logs")
+    )
+
+    foreach ($dir in $directories) {
+        if (Test-Path -LiteralPath $dir -PathType Container) {
+            Write-Host "Directory already exists: $dir" -ForegroundColor Green
+        }
+        else {
+            Write-Host "Directory will be created by DSC: $dir" -ForegroundColor Yellow
         }
     }
 }
 
-# Execute the function
-Initialize-DirectoryStructure -BasePath $DestinationPath
+# Define the DSC configuration
+Configuration WebServerConfig {
+    param (
+        [string]$BasePath
+    )
+
+    Import-DscResource -ModuleName PSDesiredStateConfiguration
+
+    Node "localhost" {
+
+        # Create the main webserver folder
+        File WebRootFolder {
+            Ensure          = "Present"
+            Type            = "Directory"
+            DestinationPath = $BasePath
+        }
+
+        # Create the logs folder
+        File LogsFolder {
+            Ensure          = "Present"
+            Type            = "Directory"
+            DestinationPath = "$BasePath\logs"
+            DependsOn       = "[File]WebRootFolder"
+        }
+
+        # Create the website index file
+        File IndexFile {
+            Ensure          = "Present"
+            Type            = "File"
+            DestinationPath = "$BasePath\index.html"
+            Contents        = "<html><body><h1>Welcome to ITINF25 Infrastructure Project</h1></body></html>"
+            DependsOn       = "[File]WebRootFolder"
+        }
+    }
+}
 
 try {
-    # Define the DSC Configuration block
-    Configuration WebServerConfig {
-        Import-DscResource -ModuleName PsDesiredStateConfiguration
+    # Check the directory structure
+    Initialize-DirectoryStructure -TargetPath $BasePath
 
-        Node "localhost" {
-            # 1. Ensure the main webserver directory exists
-            File WebServerDirectory {
-                Ensure          = "Present"
-                Type            = "Directory"
-                DestinationPath = $DestinationPath
-            }
+    # Compile the DSC configuration
+    $OutputDirectory = Join-Path $PSScriptRoot "DSC_Output"
 
-            # 2. Ensure the logs directory exists
-            File LogsDirectory {
-                Ensure          = "Present"
-                Type            = "Directory"
-                DestinationPath = "$DestinationPath\logs"
-                DependsOn       = "[File]WebServerDirectory"
-            }
+    Write-Host "Compiling DSC configuration..." -ForegroundColor Cyan
 
-            # 3. Ensure the index.html file exists with correct content
-            File WebPageFile {
-                Ensure          = "Present"
-                Type            = "File"
-                DestinationPath = "$DestinationPath\index.html"
-                Contents        = "<html><body><h1>Webserver Active via PowerShell DSC</h1></body></html>"
-                DependsOn       = "[File]WebServerDirectory"
-            }
-        }
+    WebServerConfig -BasePath $BasePath -OutputPath $OutputDirectory
+
+    # Apply the configuration
+    Write-Host "Applying DSC configuration..." -ForegroundColor Cyan
+
+    Start-DscConfiguration -Path $OutputDirectory -Wait -Verbose -Force
+
+    # Verify that the index file exists
+    $IndexPath = Join-Path $BasePath "index.html"
+
+    if (-not (Test-Path -LiteralPath $IndexPath -PathType Leaf)) {
+        throw "Verification failed: index.html was not created."
     }
 
-    # Compile the configuration to generate the MOF file
-    WebServerConfig -OutputPath "$DestinationPath\dsc"
-
-    # Apply the DSC configuration to the system
-    Start-DscConfiguration -Path "$DestinationPath\dsc" -Wait -Verbose -Force
-    
-    # Verification step
-    if (Test-Path "$DestinationPath\index.html") {
-        Write-Host "DSC Configuration applied and verified successfully." -ForegroundColor Green
-    } else {
-        throw "Verification failed: index.html was not found after apply."
-    }
+    Write-Host "DSC configuration completed successfully!" -ForegroundColor Green
 }
 catch {
-    Write-Error "An error occurred during DSC configuration: $_"
+    [Console]::Error.WriteLine("Configuration failed: $($_.Exception.Message)")
     exit 1
 }
