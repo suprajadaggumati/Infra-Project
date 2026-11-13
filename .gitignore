@@ -2,6 +2,6 @@
 .terraform/
 *.tfstate
 *.tfstate.*
+.terraform.lock.hcl
 
 # PowerShell DSC compiled output
-DSC_Output/
